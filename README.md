@@ -47,7 +47,8 @@ End-to-end Machine Learning pipeline and FastAPI web service for heart disease r
 ├── Dockerfile                        # Docker container definition
 ├── index.html                        # Single-screen web frontend UI
 ├── pyproject.toml                    # UV project metadata and dependencies
-├── requirements.txt                  # Python dependencies for pip install
+├── requirements.txt                  # Full Python dependencies (local/dev)
+├── requirements-docker.txt           # Minimal runtime dependencies for Docker container
 └── README.md                         # Project documentation
 ```
 
@@ -198,6 +199,9 @@ pytest tests/test_micro_pipeline.py
 
 # 2. Production Master Merge Evaluation Test (Golden Dataset & W&B)
 pytest tests/test_golden_evaluation.py
+
+# 3. Api Test 
+pytest tests/api_test.py
 
 # Run all tests
 pytest

@@ -53,7 +53,7 @@ async def validation_exception_handler(request: Request, exc: ValidationError):
 
 
 # Health Check Endpoint
-@app.get("/health", response_model=ApiResponse[str], summary="Health Check")
+@app.get("/", response_model=ApiResponse[str], summary="Health Check")
 def health_check():
     """Returns the operational status of the ML prediction server."""
     return ApiResponse(success=True, data="Server Ready", message="API Service is operational.")
