@@ -156,6 +156,7 @@ All scripts accept the following standard CLI flags:
 - `--env`: Target environment, either `local` (default) or `ci`.
 - `--data`: Dataset type, either `micro` (default) or `golden`.
 - `--wandb`: Weights & Biases experiment tracking, either `yes` or `no` (default).
+- `--data-path`: Optional custom path to local raw CSV file (overrides `--data` and skips registry downloads).
 
 ### 1. Data Preprocessing
 ```bash
