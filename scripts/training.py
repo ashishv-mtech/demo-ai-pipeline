@@ -106,6 +106,12 @@ def main():
         help="Dataset type to use (micro or golden)"
     )
     parser.add_argument(
+        "--data-path",
+        type=str,
+        default=None,
+        help="Custom path to local raw CSV dataset file (overrides --data)"
+    )
+    parser.add_argument(
         "--output-path", "-o",
         type=str,
         default="models",
@@ -121,16 +127,18 @@ def main():
     run_rf = None
     if wandb_enabled:
         try:
-            RUN_NAME = f"{MODEL_ABR}-run-{env_name}-{data_type}"
+            import random
+            rand_suffix = random.randint(10, 99)
+            RUN_NAME = f"{MODEL_ABR}-run-{env_name}-{data_type}-v{rand_suffix}"
             run_rf = wandb.init(
                 entity=WANDB_ENTITY,
                 project=WANDB_PROJECT,
                 name=RUN_NAME,
                 config={
                     "algorithm": MODEL_ABR,
-                    "n_estimators": 100,
-                    "max_depth": 10,
-                    "random_state": 42,
+                    "n_estimators": 150,
+                    "max_depth": 20,
+                    "random_state": 52,
                     "environment": env_name,
                     "data": data_type,
                 },
@@ -141,16 +149,20 @@ def main():
             print(f"Notice: W&B initialization skipped ({e}). Continuing training...")
 
     # Dataset Loading
-    if data_type == "micro":
-        input_path = BASE_DIR / "dataset" / "pytest-micro-data" / "raw" / "heart_disease_risk_2026_300.csv"
-    else:  # golden
-        input_path = BASE_DIR / "dataset" / "golden-data" / "raw" / "heart_disease_risk_2026.csv"
+    if args.data_path:
+        input_path = Path(args.data_path.strip("'\""))
+        should_download = False
+    else:
+        if data_type == "micro":
+            input_path = BASE_DIR / "dataset" / "pytest-micro-data" / "raw" / "heart_disease_risk_2026_300.csv"
+        else:  # golden
+            input_path = BASE_DIR / "dataset" / "golden-data" / "raw" / "heart_disease_risk_2026.csv"
 
-    # Decide if we need to download from registry
-    if env_name == "ci":
-        should_download = True
-    else:  # local
-        should_download = not input_path.exists()
+        # Decide if we need to download from registry
+        if env_name == "ci":
+            should_download = True
+        else:  # local
+            should_download = not input_path.exists()
 
     if should_download:
         print(f"Downloading {data_type} dataset from WandB Registry...")
@@ -206,7 +218,7 @@ def main():
             (
                 "rforest-classifier",
                 RandomForestClassifier(
-                    n_estimators=100, max_depth=10, random_state=42
+                    n_estimators=150, max_depth=20, random_state=52
                 ),
             ),
         ]

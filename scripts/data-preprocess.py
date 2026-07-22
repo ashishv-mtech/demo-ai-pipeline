@@ -81,24 +81,35 @@ def main():
         choices=["micro", "golden"],
         help="Dataset type to use (micro or golden)"
     )
+    parser.add_argument(
+        "--data-path",
+        type=str,
+        default=None,
+        help="Custom path to local raw CSV dataset file (overrides --data)"
+    )
 
     args = parser.parse_args()
     env_name = args.env.lower()
     data_type = args.data.lower()
 
-    # Get standard paths
-    if data_type == "micro":
-        input_path = BASE_DIR / "dataset" / "pytest-micro-data" / "raw" / "heart_disease_risk_2026_300.csv"
-        output_path = BASE_DIR / "dataset" / "pytest-micro-data" / "processed" / "ml_processed_data_300.csv"
-    else:  # golden
-        input_path = BASE_DIR / "dataset" / "golden-data" / "raw" / "heart_disease_risk_2026.csv"
-        output_path = BASE_DIR / "dataset" / "golden-data" / "processed" / "ml_processed_data.csv"
+    if args.data_path:
+        input_path = Path(args.data_path.strip("'\""))
+        output_path = input_path.parent / "ml_processed_data.csv"
+        should_download = False
+    else:
+        # Get standard paths
+        if data_type == "micro":
+            input_path = BASE_DIR / "dataset" / "pytest-micro-data" / "raw" / "heart_disease_risk_2026_300.csv"
+            output_path = BASE_DIR / "dataset" / "pytest-micro-data" / "processed" / "ml_processed_data_300.csv"
+        else:  # golden
+            input_path = BASE_DIR / "dataset" / "golden-data" / "raw" / "heart_disease_risk_2026.csv"
+            output_path = BASE_DIR / "dataset" / "golden-data" / "processed" / "ml_processed_data.csv"
 
-    # Decide if we need to download from registry
-    if env_name == "ci":
-        should_download = True
-    else:  # local
-        should_download = not input_path.exists()
+        # Decide if we need to download from registry
+        if env_name == "ci":
+            should_download = True
+        else:  # local
+            should_download = not input_path.exists()
 
     if should_download:
         print(f"Downloading {data_type} dataset from WandB Registry...")
