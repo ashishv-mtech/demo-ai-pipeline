@@ -152,28 +152,33 @@ pip install -r requirements.txt
 
 ## Scripts
 
+All scripts accept the following standard CLI flags:
+- `--env`: Target environment, either `local` (default) or `ci`.
+- `--data`: Dataset type, either `micro` (default) or `golden`.
+- `--wandb`: Weights & Biases experiment tracking, either `yes` or `no` (default).
+
 ### 1. Data Preprocessing
 ```bash
-# Default (dev environment)
+# Default (local environment, micro dataset)
 python scripts/data-preprocess.py
 
-# CI Branch environment
-python scripts/data-preprocess.py --env ci-branch
+# CI environment with micro dataset
+python scripts/data-preprocess.py --env ci --data micro
 
-# CI Production environment
-python scripts/data-preprocess.py --env ci-prod
+# CI environment with golden dataset
+python scripts/data-preprocess.py --env ci --data golden
 ```
 
 ### 2. Model Training
 ```bash
-# Default (dev environment, W&B disabled)
+# Default (local environment, micro dataset, W&B disabled)
 python scripts/training.py
 
-# CI Branch environment
-python scripts/training.py --env ci-branch
+# CI environment with micro dataset (W&B disabled)
+python scripts/training.py --env ci --data micro --wandb no
 
-# CI Production environment with W&B experiment tracking
-python scripts/training.py --env ci-prod --wandb=true
+# CI environment with golden dataset (W&B enabled)
+python scripts/training.py --env ci --data golden --wandb yes
 ```
 
 ---

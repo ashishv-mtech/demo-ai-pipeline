@@ -1,0 +1,6 @@
+pytest>=9.1.1
+requests
+pandas>=3.0.3
+scikit-learn>=1.9.0
+joblib>=1.4.0
+wandb>=0.28.1

@@ -3,7 +3,7 @@ from fastapi import FastAPI, Request, HTTPException, status
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from config import APP_NAME, APP_VERSION, HOST, PORT, DEFAULT_MODEL_NAME
+from config import APP_NAME, APP_VERSION, HOST, PORT, FASTAPI_MODEL_NAME
 from .schema import ApiResponse, MLModelInput, MLModelOutput
 from .service import model_service
 
@@ -13,8 +13,8 @@ async def lifespan(app: FastAPI):
     """Pre-warm default model into memory cache on app startup."""
     print("Starting FastAPI Application...")
     try:
-        model_service.load_model(DEFAULT_MODEL_NAME)
-        print(f"Default model '{DEFAULT_MODEL_NAME}' successfully loaded into memory.")
+        model_service.load_model(FASTAPI_MODEL_NAME)
+        print(f"Default model '{FASTAPI_MODEL_NAME}' successfully loaded into memory.")
     except Exception as e:
         print(f"Warning: Could not pre-load default model: {e}")
     yield

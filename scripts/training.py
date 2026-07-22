@@ -20,8 +20,10 @@ import wandb
 import sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from config import (
-    WANDB_ENTITY, WANDB_PROJECT, WANDB_REGISTRY, 
-    WANDB_GOLDEN_DATASET, WANDB_MICRO_DATASET
+    WANDB_ENTITY, WANDB_PROJECT, WANDB_REGISTRY_DATASET, 
+    WANDB_REGISTRY_MODEL, WANDB_COLLECTION_GOLDEN_DATASET, 
+    WANDB_COLLECTION_MICRO_DATASET, WANDB_COLLECTION_MODEL, 
+    WANDB_COLLECTION_PROCESSOR, MODEL_ABR, MODEL_NAME, MODEL_PROCESSOR
 )
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -49,23 +51,59 @@ def str2bool(v):
     else:
         raise argparse.ArgumentTypeError("Boolean value expected (true/false).")
 
+def align_corrupted_dataset(df):
+    """
+    Check if the dataset was corrupted by vertical concatenation (pd.concat with axis=0)
+    instead of horizontal (axis=1), and reconstruct the aligned dataset.
+    """
+    target_col = 'has_heart_disease'
+    if df.shape[0] % 2 == 0 and target_col in df.columns:
+        half = df.shape[0] // 2
+        first_half_target_nan = df[target_col].iloc[:half].isna().sum() > 0.9 * half
+        second_half_target_valid = df[target_col].iloc[half:].notna().sum() > 0.9 * half
+        
+        if first_half_target_nan and second_half_target_valid:
+            print("Warning: Corrupted dataset format detected (vertical concatenation instead of horizontal). Aligning dataset...")
+            # Drop target_col and any index-like / unnamed columns for features
+            cols_to_drop = [target_col]
+            for col in df.columns:
+                if col.startswith("Unnamed:") or col == "patient_id":
+                    cols_to_drop.append(col)
+            
+            df_features = df.iloc[:half].drop(columns=cols_to_drop, errors='ignore').reset_index(drop=True)
+            df_target = df.iloc[half:][[target_col]].reset_index(drop=True)
+            aligned_df = pd.concat([df_features, df_target], axis=1)
+            # Add patient_id starting from 1
+            aligned_df.insert(0, 'patient_id', range(1, len(aligned_df) + 1))
+            return aligned_df
+    return df
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Train ML Classification Model for Heart Disease Risk Prediction.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument(
-        "--env", "-e",
+        "--env",
         type=str,
-        default="dev",
-        choices=["dev", "local", "ci-branch", "micro", "ci-prod", "golden"],
-        help="Target environment (dev, ci-branch, ci-prod)"
+        default="local",
+        choices=["local", "ci"],
+        help="Target environment (local or ci)"
     )
     parser.add_argument(
-        "--input-dataset", "-i",
+        "--wandb",
         type=str,
-        default=None,
-        help="Custom path to input CSV dataset"
+        default="no",
+        choices=["yes", "no"],
+        help="Enable/disable Weights & Biases logging (yes or no)"
+    )
+    parser.add_argument(
+        "--data",
+        type=str,
+        default="micro",
+        choices=["micro", "golden"],
+        help="Dataset type to use (micro or golden)"
     )
     parser.add_argument(
         "--output-path", "-o",
@@ -73,80 +111,69 @@ def main():
         default="models",
         help="Path or directory where trained model artifact will be saved"
     )
-    parser.add_argument(
-        "--model", "-m",
-        type=str,
-        default="random_forest_classifier",
-        choices=["random_forest_classifier", "random-forest-classifier", "rfc"],
-        help="Model algorithm to train"
-    )
-    parser.add_argument(
-        "--wandb", "-w",
-        type=str2bool,
-        default=False,
-        help="Enable Weights & Biases (W&B) experiment logging (default: false)"
-    )
 
     args = parser.parse_args()
     env_name = args.env.lower()
+    data_type = args.data.lower()
+    wandb_enabled = (args.wandb.lower() == "yes")
 
     # 1. Initialize W&B Run
     run_rf = None
-    if args.wandb or env_name in ("ci-branch", "micro", "ci-prod", "golden"):
+    if wandb_enabled:
         try:
-            RUN_NAME = f"random-forest-run-{env_name}"
+            RUN_NAME = f"{MODEL_ABR}-run-{env_name}-{data_type}"
             run_rf = wandb.init(
                 entity=WANDB_ENTITY,
                 project=WANDB_PROJECT,
                 name=RUN_NAME,
                 config={
-                    "algorithm": "RandomForest",
+                    "algorithm": MODEL_ABR,
                     "n_estimators": 100,
                     "max_depth": 10,
                     "random_state": 42,
                     "environment": env_name,
+                    "data": data_type,
                 },
             )
-            print(f"W&B Experiment Tracking enabled for environment: '{env_name}'")
+            print(f"W&B Experiment Tracking enabled for environment: '{env_name}' ({data_type})")
         except Exception as e:
             run_rf = None
             print(f"Notice: W&B initialization skipped ({e}). Continuing training...")
 
     # Dataset Loading
-    input_path = None
-    if args.input_dataset:
-        input_path = Path(args.input_dataset)
-    else:
-        if env_name in ("ci-branch", "micro"):
-            print("CI environment detected. Pulling micro dataset from WandB Registry...")
-            artifact_path = f"{WANDB_ENTITY}/{WANDB_REGISTRY}/{WANDB_MICRO_DATASET}:production"
-            if run_rf:
-                artifact = run_rf.use_artifact(artifact_path)
-            else:
-                api = wandb.Api()
-                artifact = api.artifact(artifact_path)
-            download_dir = artifact.download()
-            csv_files = list(Path(download_dir).glob("*.csv"))
-            input_path = csv_files[0] if csv_files else None
-        elif env_name in ("ci-prod", "golden"):
-            print("Prod environment detected. Pulling golden dataset from WandB Registry...")
-            artifact_path = f"{WANDB_ENTITY}/{WANDB_REGISTRY}/{WANDB_GOLDEN_DATASET}:production"
-            if run_rf:
-                artifact = run_rf.use_artifact(artifact_path)
-            else:
-                api = wandb.Api()
-                artifact = api.artifact(artifact_path)
-            download_dir = artifact.download()
-            csv_files = list(Path(download_dir).glob("*.csv"))
-            input_path = csv_files[0] if csv_files else None
-        else:
-            input_path = BASE_DIR / "dataset" / "dev" / "raw" / "heart_disease_risk_2026.csv"
+    if data_type == "micro":
+        input_path = BASE_DIR / "dataset" / "pytest-micro-data" / "raw" / "heart_disease_risk_2026_300.csv"
+    else:  # golden
+        input_path = BASE_DIR / "dataset" / "golden-data" / "raw" / "heart_disease_risk_2026.csv"
 
-    if input_path is None or not input_path.exists():
-        raise FileNotFoundError(f"Input file not found at: {input_path}")
+    # Decide if we need to download from registry
+    if env_name == "ci":
+        should_download = True
+    else:  # local
+        should_download = not input_path.exists()
+
+    if should_download:
+        print(f"Downloading {data_type} dataset from WandB Registry...")
+        collection_name = WANDB_COLLECTION_MICRO_DATASET if data_type == "micro" else WANDB_COLLECTION_GOLDEN_DATASET
+        artifact_path = f"{WANDB_REGISTRY_DATASET}/{collection_name}:production"
+        if run_rf:
+            artifact = run_rf.use_artifact(artifact_path)
+        else:
+            api = wandb.Api(overrides={"entity": WANDB_ENTITY})
+            artifact = api.artifact(artifact_path)
+        download_dir = artifact.download()
+        csv_files = list(Path(download_dir).glob("*.csv"))
+        if csv_files:
+            input_path.parent.mkdir(parents=True, exist_ok=True)
+            import shutil
+            shutil.copy(csv_files[0], input_path)
+    else:
+        if not input_path.exists():
+            raise FileNotFoundError(f"Local dataset file not found at: {input_path}")
 
     print(f"Loading dataset from: {input_path}")
     df = pd.read_csv(input_path)
+    df = align_corrupted_dataset(df)
     print(f"Dataset loaded. Shape: {df.shape}")
 
     # Drop redundant columns
@@ -204,8 +231,8 @@ def main():
     output_path_dir = BASE_DIR / args.output_path if not Path(args.output_path).is_absolute() else Path(args.output_path)
     output_path_dir.mkdir(parents=True, exist_ok=True)
     
-    preprocessor_path = output_path_dir / "preprocessor.joblib"
-    model_path = output_path_dir / "random_forest_classifier.joblib"
+    preprocessor_path = output_path_dir / MODEL_PROCESSOR
+    model_path = output_path_dir / MODEL_NAME
 
     # Extract the preprocessor from pipeline to save separately
     fitted_preprocessor = rforest_classifier.named_steps["data-preprocessor"]
@@ -256,15 +283,15 @@ def main():
         artifact.add_file(str(model_path))
         logged_artifact = run_rf.log_artifact(artifact)
 
-        if env_name in ("ci-prod", "golden"):
+        if env_name == "ci" and data_type == "golden":
             run_rf.link_artifact(
                 artifact=logged_prep,
-                target_path="wandb-registry-model/heart-risk-processor",
+                target_path=f"{WANDB_REGISTRY_MODEL}/{WANDB_COLLECTION_PROCESSOR}",
                 aliases=["production"],
             )
             run_rf.link_artifact(
                 artifact=logged_artifact,
-                target_path="wandb-registry-model/heart-risk",
+                target_path=f"{WANDB_REGISTRY_MODEL}/{WANDB_COLLECTION_MODEL}",
                 aliases=["production"],
             )
 

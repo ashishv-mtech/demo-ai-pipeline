@@ -1,6 +1,6 @@
 import joblib
 import pandas as pd
-from config import MODELS_DIR, DEFAULT_MODEL_NAME, DEFAULT_PREPROCESSOR_NAME
+from config import MODELS_DIR, FASTAPI_MODEL_NAME, FASTAPI_PROCESSOR
 from .schema import MLModelInput, MLModelOutput
 
 
@@ -13,9 +13,9 @@ class ModelService:
         if self.model is not None:
             return self.model
 
-        model_path = MODELS_DIR / DEFAULT_MODEL_NAME
+        model_path = MODELS_DIR / FASTAPI_MODEL_NAME
         if not model_path.exists():
-            raise FileNotFoundError(f"Model file '{DEFAULT_MODEL_NAME}' not found in '{MODELS_DIR}'.")
+            raise FileNotFoundError(f"Model file '{FASTAPI_MODEL_NAME}' not found in '{MODELS_DIR}'.")
 
         print(f"Loading model into memory: {model_path}")
         self.model = joblib.load(model_path)
@@ -33,7 +33,7 @@ class ModelService:
             probas = self.model.predict_proba(df_input)[0]
             probability = float(probas[1]) if len(probas) > 1 else float(pred_class)
         except Exception as e:
-            preprocessor_path = MODELS_DIR / DEFAULT_PREPROCESSOR_NAME
+            preprocessor_path = MODELS_DIR / FASTAPI_PROCESSOR
             if preprocessor_path.exists():
                 preprocessor = joblib.load(preprocessor_path)
                 X_proc = preprocessor.transform(df_input)
@@ -57,7 +57,7 @@ class ModelService:
             heart_disease_probability_percent=prob_percent,
             probability=round(probability, 4),
             risk_level=risk_level,
-            model_used=DEFAULT_MODEL_NAME
+            model_used=FASTAPI_MODEL_NAME
         )
 
 

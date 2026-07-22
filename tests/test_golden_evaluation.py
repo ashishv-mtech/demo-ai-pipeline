@@ -9,11 +9,11 @@ from sklearn.model_selection import train_test_split
 # Golden Dataset & Production Pipeline Paths
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
-from config import WANDB_ENTITY, WANDB_PROJECT, WANDB_REGISTRY, WANDB_GOLDEN_DATASET
+from config import WANDB_ENTITY, WANDB_PROJECT, WANDB_REGISTRY_DATASET, WANDB_COLLECTION_GOLDEN_DATASET, MODEL_NAME, MODEL_PROCESSOR
 
 GOLDEN_PROCESSED_PATH = BASE_DIR / "dataset" / "golden-data" / "processed" / "ml_processed_data.csv"
-MODEL_PATH = BASE_DIR / "models" / "random_forest_classifier.joblib"
-PREPROCESSOR_PATH = BASE_DIR / "models" / "preprocessor.joblib"
+MODEL_PATH = BASE_DIR / "models" / MODEL_NAME
+PREPROCESSOR_PATH = BASE_DIR / "models" / MODEL_PROCESSOR
 PREPROCESS_SCRIPT = BASE_DIR / "scripts" / "data-preprocess.py"
 TRAINING_SCRIPT = BASE_DIR / "scripts" / "training.py"
 
@@ -22,11 +22,39 @@ MIN_ACCURACY_THRESHOLD = 0.70
 MIN_F1_THRESHOLD = 0.70
 
 
+def align_corrupted_dataset(df):
+    """
+    Check if the dataset was corrupted by vertical concatenation (pd.concat with axis=0)
+    instead of horizontal (axis=1), and reconstruct the aligned dataset.
+    """
+    target_col = 'has_heart_disease'
+    if df.shape[0] % 2 == 0 and target_col in df.columns:
+        half = df.shape[0] // 2
+        first_half_target_nan = df[target_col].iloc[:half].isna().sum() > 0.9 * half
+        second_half_target_valid = df[target_col].iloc[half:].notna().sum() > 0.9 * half
+        
+        if first_half_target_nan and second_half_target_valid:
+            print("Warning: Corrupted dataset format detected (vertical concatenation instead of horizontal). Aligning dataset...")
+            # Drop target_col and any index-like / unnamed columns for features
+            cols_to_drop = [target_col]
+            for col in df.columns:
+                if col.startswith("Unnamed:") or col == "patient_id":
+                    cols_to_drop.append(col)
+            
+            df_features = df.iloc[:half].drop(columns=cols_to_drop, errors='ignore').reset_index(drop=True)
+            df_target = df.iloc[half:][[target_col]].reset_index(drop=True)
+            aligned_df = pd.concat([df_features, df_target], axis=1)
+            # Add patient_id starting from 1
+            aligned_df.insert(0, 'patient_id', range(1, len(aligned_df) + 1))
+            return aligned_df
+    return df
+
+
 def test_1_process_golden_dataset():
     """1. Apply preprocessing script on golden raw data -> save processed dataset."""
     GOLDEN_PROCESSED_PATH.parent.mkdir(parents=True, exist_ok=True)
     prep_res = subprocess.run(
-        [sys.executable, str(PREPROCESS_SCRIPT), "--env", "ci-prod"],
+        [sys.executable, str(PREPROCESS_SCRIPT), "--env", "ci", "--data", "golden"],
         capture_output=True,
         text=True
     )
@@ -38,7 +66,7 @@ def test_1_process_golden_dataset():
 def test_2_train_and_evaluate_golden_model():
     """2. Train model on golden dataset -> evaluate production thresholds -> log to W&B."""
     train_res = subprocess.run(
-        [sys.executable, str(TRAINING_SCRIPT), "--env", "ci-prod", "-w", "true"],
+        [sys.executable, str(TRAINING_SCRIPT), "--env", "ci", "--data", "golden", "--wandb", "yes"],
         capture_output=True,
         text=True
     )
@@ -47,13 +75,14 @@ def test_2_train_and_evaluate_golden_model():
 
     # Evaluate Model Metrics on Golden Test Split
     import wandb
-    api = wandb.Api()
-    artifact = api.artifact(f"{WANDB_ENTITY}/{WANDB_REGISTRY}/{WANDB_GOLDEN_DATASET}:production")
+    api = wandb.Api(overrides={"entity": WANDB_ENTITY})
+    artifact = api.artifact(f"{WANDB_REGISTRY_DATASET}/{WANDB_COLLECTION_GOLDEN_DATASET}:production")
     download_dir = artifact.download()
     csv_files = list(Path(download_dir).glob("*.csv"))
     assert len(csv_files) > 0, "No CSV found in downloaded golden dataset artifact"
     
     df_golden = pd.read_csv(csv_files[0])
+    df_golden = align_corrupted_dataset(df_golden)
     
     # Drop columns as done in training pipeline
     cols_to_drop = ["cholesterol_total", "fasting_blood_sugar"]
